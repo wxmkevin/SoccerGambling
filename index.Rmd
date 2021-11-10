@@ -1,6 +1,6 @@
 --- 
-title: "YOUR TITLE HERE"
-author: "YOUR NAMES HERE"
+title: "European Soccer Team Exploration"
+author: "Sicheng Li, Weiyi Jiang and Xianmeng Wang"
 date: "`r Sys.Date()`"
 site: bookdown::bookdown_site
 ---
