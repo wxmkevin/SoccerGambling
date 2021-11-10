@@ -19,6 +19,9 @@ To answer Q2, we can plot scatterplots between each attribute with the outcome a
 
 To answer Q3, we compare the possibility of each outcome that the model predicted according to Q2 and the betting odds of each game to see if there is a profit-making strategy.
 
+***Book URL***
+https://serendipitylee.github.io/SoccerGambling/
+
 *This repo was initially generated from a bookdown template available here: https://github.com/jtr13/EDAVtemplate.*	
 
 
