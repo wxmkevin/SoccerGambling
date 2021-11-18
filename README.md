@@ -1,5 +1,7 @@
 STATS GR5702 EDAV Final Project: European Soccer Team Exploration
 
+This project is mainly about seeking the relationship between the football player and football team data and match result. Here are the following questions generated from this main idea.
+
 ***Questions:***
 
 1. Do teams in the same league share similar playing patterns?
