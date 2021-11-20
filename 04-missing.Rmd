@@ -1,1 +1,142 @@
 # Missing values
+
+---
+title: "missing_data"
+author: "Xianmeng Wang"
+date: "11/18/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(patchwork)
+```
+
+
+```{r, echo=F}
+missing_patterns_plot <- function(dataset, percent = F) {
+  missing_patterns <- data.frame(is.na(dataset)) %>%
+  group_by_all() %>%
+  count(name = "count", sort = TRUE) %>%
+  ungroup()
+  
+  count_by_attr <- sort(colSums(is.na(dataset)), decreasing = TRUE)
+
+  main_plot <- missing_patterns %>%
+    rownames_to_column("id") %>%
+    gather(key, value, -id, -count) %>%
+    rename(Missing = value) %>%
+    ggplot(aes(x = factor(key, levels = names(count_by_attr)), factor(id, levels = max(as.numeric(id)):min(as.numeric(id))), fill = Missing, alpha = id)) +
+    geom_tile(color = "white") +
+    labs(x = "variable", y = "missing pattern") +
+    annotate("text", x = ncol(dataset)/2, y = which(rev(rowSums(missing_patterns %>%
+                                         select(-count)) == 0)), label = "complete case") +
+    scale_fill_manual(values = c("lightskyblue1", "pink1")) + 
+    scale_alpha_manual(values = (rowSums(missing_patterns %>%
+                                         select(-count)) > 0)+0.5, guide = "none") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+  
+  num_rows <- ggplot(bind_cols(tibble(count_by_attr), attrs = names(count_by_attr)), aes(x = factor(attrs, levels = names(count_by_attr)), y = count_by_attr, fill = "rosybrown")) +
+    geom_bar(stat = "identity") +
+    ylim(0, ifelse(sum(count_by_attr) != 0, NA, nrow(dataset))) +
+    scale_fill_manual(values = "rosybrown", guide = "none") +
+    labs(title = "Missing value patterns",
+         y = "num rows\nmissing", x = "") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+    
+  row_count <- ggplot(missing_patterns %>% rowid_to_column("id"), aes(x = factor(id, levels = max(as.numeric(id)):min(as.numeric(id))), y = count, fill = "rosybrown")) +
+    geom_bar(stat = "identity") +
+    ylim(0, ifelse(sum(count_by_attr) != 0, NA, nrow(dataset))) +
+    labs(y = "row count", x = "") +
+    scale_fill_manual(values = "rosybrown", guide = "none") + 
+    coord_flip() +
+    theme_bw()
+  
+  perc_rows <- ggplot(bind_cols(tibble(count_by_attr), attrs = names(count_by_attr)), aes(x = factor(attrs, levels = names(count_by_attr)), y = count_by_attr/nrow(dataset)*100, fill = "rosybrown")) +
+    geom_bar(stat = "identity") +
+    ylim(0, 100) +
+    scale_fill_manual(values = "rosybrown", guide = "none") +
+    labs(title = "Missing value patterns",
+         y = "% rows\nmissing", x = "") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+    
+  row_perc <- ggplot(missing_patterns %>% rowid_to_column("id"), aes(x = factor(id, levels = max(as.numeric(id)):min(as.numeric(id))), y = count/nrow(dataset)*100, fill = "rosybrown")) +
+    geom_bar(stat = "identity") +
+    ylim(0, 100) +
+    labs(y = "% rows", x = "") +
+    scale_fill_manual(values = "rosybrown", guide = "none") + 
+    coord_flip() +
+    theme_bw()
+  
+  if (percent == F) {
+    return(num_rows +  plot_spacer() + main_plot + row_count + plot_layout(heights = c(2, 6), widths = c(6, 2)))
+  } else {
+    return(perc_rows +  plot_spacer() + main_plot + row_perc + plot_layout(heights = c(2, 6), widths = c(6, 2)))
+  }
+}
+```
+
+```{r, echo=F, warning=F, message=F}
+league = read_csv('league.csv')
+match = read_csv('match.csv')
+player = read_csv('player.csv')
+player_attr = read_csv('player_attributes.csv')
+team = read_csv('team.csv')
+team_attr = read_csv('team_attributes.csv')
+```
+
+In the dataset, only team attributes, player attributes and match contain NA values.
+
+## Team attributes
+
+```{r, echo=F, fig.height = 8}
+missing_patterns_plot(team_attr, T)
+```
+
+We see that only "buildUpPlayDribbling" has NA values. It is easy to think that the NA pattern of this attribute has something to with "buildUpPlayDribblingClass". So we take a look at it. 
+
+```{r, echo=F}
+percent_missing = team_attr %>% group_by(buildUpPlayDribblingClass) %>% summarize(nums=n(), num_na = sum(is.na(`buildUpPlayDribbling`))) %>% mutate(percent_na = round(num_na/nums, 2)) %>% 
+arrange(-percent_na)
+
+ggplot(percent_missing, aes(x=buildUpPlayDribblingClass, y=percent_na)) + geom_col() + geom_col(color = "blue", fill = "lightblue") + ggtitle("Percentage of missing values for different classes") + ylab('percentage')
+```
+
+As you can see, NA values are all in "little" class and nearly all sample with this class has an NA value in the score. 
+
+## Player attributes
+
+```{r, echo=F}
+missing_patterns_plot(player_attr, F)
+```
+
+As we can see, nearly all samples exist with no NA value. So in the data transformation we just throw them away. 
+
+## Match data
+
+Since there are so many attributes in match data, we split it in two parts. One is about players and the other is about the bet odds. Other attributes, including the column "country_id", "league_id", "season", "stage", "date", "match_id", "home_team_id",  "away_team_id", "home_team_goal" and "away_team_goal" has no missing data in it. 
+
+```{r, echo=F}
+missing_patterns_plot(match[,0:9], T)
+```
+
+We firstly take a look at the players_id in the data. Since there is no intrinsic difference for players with different index, what we do here is to count the number of missing values of players in the data.
+
+```{r}
+player_match = match[,0:32]
+player_match$na_count <- apply(player_match, 1, function(x) sum(is.na(x)))
+ggplot(player_match, aes(x=na_count)) + geom_histogram(bins=22)
+```
+
+So as wee can see most data sample contains all 22 players' id. Then in the data preprocessing session we just need to drop rows with NA values in players' id. 
+
+```{r, fig.height = 12}
+bet_match = match %>% select(c(0:9, 33:62))
+missing_patterns_plot(bet_match, T)
+```
+
+We can see that there are numerous types of missing patterns about bets. Since we assume bets are irrelevant of the match result, this complex bet missing patterns are trivial to us. 
