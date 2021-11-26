@@ -1,1 +1,83 @@
+---
+title: "03-cleaning"
+author: "Xianmeng Wang"
+date: "11/26/2021"
+output: html_document
+---
 # Data transformation
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+set.seed(12580)
+```
+
+## Player Attributes
+
+There are 183978 players in this dataframe and only about 3000 rows contain NA values. Therefore, directly dropping NA variables is feasible. After that, we sample 5000 of them for a convenient plot.
+
+```{r}
+df <- read_csv('player_attributes.csv')
+df <- df %>% drop_na()
+df <- sample_n(df, 5000)
+```
+We firstly check the normality of each column
+
+```{r}
+df %>% select(!c('date', 'preferred_foot', 'attacking_work_rate', 'defensive_work_rate')) %>% pivot_longer(cols = !player_id, names_to = 'property', values_to = 'score') %>% ggplot(aes(sample = score)) + stat_qq() + stat_qq_line() + facet_wrap(~property)
+```
+
+We firstly notice that for features starting with the characters "gk", there is a significant deviance to normality. It is obviously because the goalkeepers are significantly better than other football players in these attributes. Since there is no information about whether one player is in charge of saving the goal. We decided to implement K-means clustering to classify them. We will not elaborate the specific ways to solve the problem since the project focuses on EDA. Before we implement this, we take a look at the histograms of "gk" features:
+
+```{r}
+gks = colnames(df)[-(1:35)]
+df %>% select(gks) %>% pivot_longer(cols = everything(), names_to = 'gk', values_to = 'score') %>% ggplot(aes(score)) + geom_histogram() + facet_wrap(~gk)
+```
+
+It is easy to notice that for these features, there are two clusters and probably the higher score is for goalkeepers and the lower score is for other players.
+
+```{r}
+yn <- function (x){
+  if(x == 1){
+    result <- 'NO'
+  }
+  else{
+    result <- 'YES'
+  }
+}
+
+model <- df %>% select(gks) %>% kmeans(2) 
+df <- df %>% mutate(goalkeeper = model$cluster - 1)
+if(model$centers[2, 1] > model$centers[1, 1]){
+  labels = c("NO", "YES")
+}else{
+  labels = c("YES", "NO")
+}
+df %>% select(c(gks, 'goalkeeper')) %>% pivot_longer(cols=!goalkeeper, names_to = 'property', values_to = 'score') %>% ggplot(aes(score, fill = factor(goalkeeper))) + geom_histogram(color = 'blue', alpha = 0.7, binwidth = 5) + facet_wrap(~property) + scale_fill_discrete(name = "goalkeeper", labels = labels)
+```
+
+We notice that except gk_kicking, all clusters clearly separated the supposed goalkeepers and other players. We surmise that there are some players who are not goalkeepers playing well in kicking. Further research needs conducting on the types of these players.
+
+## Team attributes
+
+From missing data part we notice that the feature "buildUpPlayDribbling" contains NA values when "buildUpPlayDribblingClass" is little. Firstly we need to separately view the boxplot of "buildUpPlayDribbling" by "buildUpPlayDribblingClass"
+
+```{r}
+team = read_csv('team_attributes.csv')
+team %>% ggplot(aes(x = buildUpPlayDribbling, y = factor(buildUpPlayDribblingClass, levels = c("Little", "Normal", "Lots")))) + geom_boxplot()
+```
+
+So different classes have different scores. Because we need to fill NA value in the Little class, we only draw the histogram of little class and we see that 
+
+```{r}
+team %>% filter(buildUpPlayDribblingClass == 'Little') %>% ggplot(aes(x = buildUpPlayDribbling)) + geom_histogram(binwidth = 1) 
+```
+
+The result of shapiro test shows the p value is 0.0001525 so we would like to fill the NA value by the maximum likelihood estimation of the normal distribution (i.e. mean). 
+
+```{r}
+m = team %>% filter(buildUpPlayDribblingClass == 'Little') %>% select(buildUpPlayDribbling) %>% drop_na() 
+m = m$buildUpPlayDribbling %>% mean()
+team$buildUpPlayDribbling[is.na(team$buildUpPlayDribbling)] = m
+```
+
