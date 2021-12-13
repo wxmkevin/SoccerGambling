@@ -9,6 +9,7 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
+library(GGally)
 set.seed(12580)
 ```
 
@@ -21,17 +22,30 @@ df <- read_csv('player_attributes.csv')
 df <- df %>% drop_na()
 df <- sample_n(df, 5000)
 ```
+### Filtering goalkeepers
+
 We firstly check the normality of each column
 
 ```{r}
-df %>% select(!c('date', 'preferred_foot', 'attacking_work_rate', 'defensive_work_rate')) %>% pivot_longer(cols = !player_id, names_to = 'property', values_to = 'score') %>% ggplot(aes(sample = score)) + stat_qq() + stat_qq_line() + facet_wrap(~property)
+df %>%
+  select(!c('date', 'preferred_foot', 'attacking_work_rate', 'defensive_work_rate')) %>%
+  pivot_longer(cols = !player_id, names_to = 'property', values_to = 'score') %>%
+  ggplot(aes(sample = score)) +
+  stat_qq() +
+  stat_qq_line() +
+  facet_wrap(~property)
 ```
 
 We firstly notice that for features starting with the characters "gk", there is a significant deviance to normality. It is obviously because the goalkeepers are significantly better than other football players in these attributes. Since there is no information about whether one player is in charge of saving the goal. We decided to implement K-means clustering to classify them. We will not elaborate the specific ways to solve the problem since the project focuses on EDA. Before we implement this, we take a look at the histograms of "gk" features:
 
 ```{r}
 gks = colnames(df)[-(1:35)]
-df %>% select(gks) %>% pivot_longer(cols = everything(), names_to = 'gk', values_to = 'score') %>% ggplot(aes(score)) + geom_histogram() + facet_wrap(~gk)
+df %>%
+  select(gks) %>%
+  pivot_longer(cols = everything(), names_to = 'gk', values_to = 'score') %>%
+  ggplot(aes(score)) +
+  geom_histogram() +
+  facet_wrap(~gk)
 ```
 
 It is easy to notice that for these features, there are two clusters and probably the higher score is for goalkeepers and the lower score is for other players.
@@ -46,17 +60,167 @@ yn <- function (x){
   }
 }
 
-model <- df %>% select(gks) %>% kmeans(2) 
-df <- df %>% mutate(goalkeeper = model$cluster - 1)
+gk_model <- df %>% select(gks) %>% kmeans(2) 
+df <- df %>% mutate(goalkeeper = gk_model$cluster - 1)
 if(model$centers[2, 1] > model$centers[1, 1]){
   labels = c("NO", "YES")
 }else{
   labels = c("YES", "NO")
 }
-df %>% select(c(gks, 'goalkeeper')) %>% pivot_longer(cols=!goalkeeper, names_to = 'property', values_to = 'score') %>% ggplot(aes(score, fill = factor(goalkeeper))) + geom_histogram(color = 'blue', alpha = 0.7, binwidth = 5) + facet_wrap(~property) + scale_fill_discrete(name = "goalkeeper", labels = labels)
+df %>%
+  select(c(gks, 'goalkeeper')) %>%
+  pivot_longer(cols=!goalkeeper, names_to = 'property', values_to = 'score') %>%
+  ggplot(aes(score, fill = factor(goalkeeper))) +
+  geom_histogram(color = 'blue', alpha = 0.7, binwidth = 5) +
+  facet_wrap(~property) +
+  scale_fill_discrete(name = "goalkeeper", labels = labels)
 ```
 
-We notice that except gk_kicking, all clusters clearly separated the supposed goalkeepers and other players. We surmise that there are some players who are not goalkeepers playing well in kicking. Further research needs conducting on the types of these players.
+We notice that except gk_kicking, all clusters clearly separated the supposed goalkeepers and other players. We surmise that there are some players who are not goalkeepers playing well in kicking. The research conducted on the types of these players will be explored later.
+
+We can verify the justification of this clustering by simply looking at the count of goalkeepers and non-goalkeepers. In one sample, we found the total number of non-goalkeepers are 4596 and goalkeepers are 404. The ratio is 11.38. Notice that there are one goalkeeper with 10 other football players in the match so the theoretical ratio should be 10, which is close to 11.38.
+
+### Filtering guards
+
+We then take a look at the histograms for non-goalkeepers.
+
+```{r}
+df %>%
+  filter(goalkeeper==0) %>%
+  select(!c('date', 'preferred_foot', 'attacking_work_rate', 'defensive_work_rate', 'goalkeeper')) %>%
+  pivot_longer(cols = !player_id, names_to = 'property', values_to = 'score') %>%
+  ggplot(aes(score)) +
+  geom_histogram() +
+  facet_wrap(~property)
+```
+
+From the histograms, we notice that four attributes contain bimodality. Those are 'gk_kicking', 'standing_tackle', 'sliding_tackle' and 'marking'. We then make a scatter matrices for these four data. 
+
+```{r}
+df %>%
+  filter(goalkeeper==0) %>%
+  select(c('gk_kicking', 'standing_tackle', 'sliding_tackle', 'marking')) %>%
+  ggpairs(lower = list(continuous = wrap("points", alpha = 0.3, size=0.1)), title='Bimodality Features Pairplot')
+```
+
+We realize that the last three features containing a high positive correlation. With bimodality and strong correlation, another clustering could be built. We feel that the clusters with higher score could be from the guards (or defenders). 
+
+```{r}
+ngk <- df %>% filter(goalkeeper==0) %>% subset(select=-goalkeeper)
+gk <- df %>% filter(goalkeeper==1) %>% subset(select=-goalkeeper)
+guard_features <- c('standing_tackle', 'sliding_tackle', 'marking')
+model <- ngk %>% select(guard_features) %>% kmeans(2) 
+ngk <- ngk %>% mutate(guard = model$cluster - 1)
+if(model$centers[2, 1] > model$centers[1, 1]){
+  guard_sign = 1
+  labels = c("NO", "YES")
+}else{
+  guard_sign = 0
+  labels = c("YES", "NO")
+}
+ngk %>%
+  select(c(guard_features, 'guard')) %>%
+  pivot_longer(cols=!guard, names_to = 'property', values_to = 'score') %>%
+  ggplot(aes(score, fill = factor(guard), alpha=0.5)) +
+  geom_histogram(color = 'blue', alpha = 0.5, binwidth = 5) +
+  facet_wrap(~property) +
+  scale_fill_discrete(name = "guard", labels = labels)
+```
+The clustering shows it separates guard and other players. 
+
+We can verify the justification of this clustering by simply looking at the count of guards and non-guards. In one sample, we found the total number of non-guards are 2687 and guards are 1909. The ratio is 1.41. Notice that usually the formation of the team are "4-6" like (e.g. 4-4-2, 4-2-3-1, 4-3-3) so the theoretical ratio should be 1.5, while 1.41 is close to this ratio.
+
+```{r}
+ngk %>%
+  group_by(guard) %>%
+  summarize(counts = n())
+```
+
+```{r}
+guards <- ngk %>% filter(guard==guard_sign) %>% subset(select = -guard)
+ngs <- ngk %>% filter(guard!=guard_sign) %>% subset(select = -guard)
+```
+
+
+### gk_kicking issue
+
+So what happend to "gk_kicking" high score non-goalkeepers? In this part, we would like to take a simple exploration. Firstly, we categorize the players based on whether the "gk_kicking" score is higher than 18. You can see why we choose 18 based on the following plot.
+
+```{r}
+ngk %>% ggplot(aes(x=gk_kicking)) + geom_histogram(bins=50) + geom_vline(xintercept=18, color='blue')
+```
+
+Then we plot the difference between two class on other features. Boxplot is used to avoid overplotting issue and increase the computing efficiency. The result is as followed:
+
+```{r}
+tmp = ngk %>% mutate(gkk = (gk_kicking >=18))
+cols = c(names(tmp %>% select_if(is.numeric)), 'gkk')
+tmp %>% select(cols) %>% select(-c(player_id, gks, guard)) %>% pivot_longer(cols=!gkk, names_to = 'property', values_to = 'score') %>%
+  ggplot(aes(x=gkk, y=score)) +
+  geom_boxplot() +
+  facet_wrap(~property)
+# tmp %>%
+#   select(c(guard_features, 'guard')) %>%
+#   pivot_longer(cols=!guard, names_to = 'property', values_to = 'score') %>%
+#   ggplot(aes(score, fill = factor(guard), alpha=0.5)) +
+#   geom_histogram(color = 'blue', alpha = 0.5, binwidth = 5) +
+#   facet_wrap(~property) +
+#   scale_fill_discrete(name = "guard", labels = labels) 
+```
+
+It seems that there is no significant difference for other features. We also heard from other friends that this feature is trivial for non-goalkeepers. So we decide to discard this feature without further exploration.
+
+### further exploration of goalkeeper
+
+We implemented PCA on goalkeepers' gk features and the biplot is shown as follow:
+
+```{r}
+gkpca_part <- gk %>% select(gks) %>% prcomp(scale. = T, center = T)
+biplot(gkpca_part, xlabs=rep(".", nrow(gk)))
+```
+
+We notice that there is high similarity between these tuples: ("gk_diving", "gk_reflexes") and ("gk_positioning", "gk_handling"). That means we could create a new score from these two features in the tuple via dimension reduction.
+
+There seems no clustering but when we make a biplot for all features, a surprising thing happens:
+
+```{r}
+gkpca <- gk %>% select_if(is_numeric) %>% select(-c(player_id)) %>% prcomp(scale. = T, center = T)
+biplot(gkpca, xlabs=rep(".", nrow(gk)))
+```
+
+We see that there are two clusters of data and three clusters of features are generated. Therefore, we could apply KMeans on goalkeepers to generate two clusters. 
+
+```{r}
+pca_back <- function(pca, comp = 2){
+  result <- t(t(pca$x[, c(1:comp)] %*% t(pca$rotation[, c(1:comp)])) + pca$center)
+}
+
+dr_data <- data.frame(gkpca$x[,c(1:2)])
+gkpca_model <- dr_data %>% kmeans(2)
+dr_data <- dr_data %>% mutate(class = gkpca_model$cluster - 1)
+dr_data %>%
+  ggplot(aes(x = PC1, y = PC2, color = factor(class))) +
+  geom_point(alpha = 0.7)
+```
+
+### further exploration of guards
+
+```{r}
+PCA <- guards %>% select_if(is_numeric) %>% select(-c(player_id, gks)) %>% prcomp(scale. = T, center = T)
+biplot(PCA, xlabs=rep(".", nrow(guards)))
+```
+
+```{r}
+PCA <- guards %>% select('standing_tackle', 'sliding_tackle', 'marking') %>% prcomp(scale. = T, center = T)
+biplot(PCA, xlabs=rep(".", nrow(guards)))
+```
+
+### further exploration of non-guards
+
+```{r}
+PCA <- ngs %>% select_if(is_numeric) %>% select(-c(player_id, gks)) %>% prcomp(scale. = T, center = T)
+biplot(PCA, xlabs=rep(".", nrow(ngs)))
+```
 
 ## Team attributes
 
@@ -64,13 +228,18 @@ From missing data part we notice that the feature "buildUpPlayDribbling" contain
 
 ```{r}
 team = read_csv('team_attributes.csv')
-team %>% ggplot(aes(x = buildUpPlayDribbling, y = factor(buildUpPlayDribblingClass, levels = c("Little", "Normal", "Lots")))) + geom_boxplot()
+team %>%
+  ggplot(aes(x = buildUpPlayDribbling, y = factor(buildUpPlayDribblingClass, levels = c("Little", "Normal", "Lots")))) +
+  geom_boxplot()
 ```
 
 So different classes have different scores. Because we need to fill NA value in the Little class, we only draw the histogram of little class and we see that 
 
 ```{r}
-team %>% filter(buildUpPlayDribblingClass == 'Little') %>% ggplot(aes(x = buildUpPlayDribbling)) + geom_histogram(binwidth = 1) 
+team %>%
+  filter(buildUpPlayDribblingClass == 'Little') %>%
+  ggplot(aes(x = buildUpPlayDribbling)) +
+  geom_histogram(binwidth = 1)
 ```
 
 The result of shapiro test shows the p value is 0.0001525 so we would like to fill the NA value by the maximum likelihood estimation of the normal distribution (i.e. mean). 
@@ -81,3 +250,9 @@ m = m$buildUpPlayDribbling %>% mean()
 team$buildUpPlayDribbling[is.na(team$buildUpPlayDribbling)] = m
 ```
 
+### team biplot
+
+```{r}
+team_pca = team %>% select_if(is.numeric) %>% select(-team_id) %>% prcomp(scale. = T, center = T)
+biplot(team_pca, xlabs=rep(".", nrow(team)))
+```
