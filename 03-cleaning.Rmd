@@ -256,3 +256,5 @@ team$buildUpPlayDribbling[is.na(team$buildUpPlayDribbling)] = m
 team_pca = team %>% select_if(is.numeric) %>% select(-team_id) %>% prcomp(scale. = T, center = T)
 biplot(team_pca, xlabs=rep(".", nrow(team)))
 ```
+
+
